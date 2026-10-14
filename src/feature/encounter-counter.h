@@ -52,6 +52,7 @@ void ecStateLoaded(struct EcTracker* t, EcRead8 read, void* ctx);
  * it off. */
 bool ecAutoPauseEnabled(void);
 void ecSetAutoPause(bool enabled);
+/* true once per shiny, as soon as the display confirmed it (at most 1.5 s later) */
 bool ecTakeShinyEvent(struct EcTracker* t);
 bool ecShinyHold(const struct EcTracker* t);
 void ecReleaseShinyHold(struct EcTracker* t);

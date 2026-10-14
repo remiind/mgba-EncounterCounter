@@ -118,6 +118,7 @@ struct EcTracker {
 	volatile bool shinyEvent;
 	volatile bool shinyHold;
 	uint64_t resumePressedAt; /* 0 = resume button not held */
+	uint64_t shinyAt;         /* when the shiny was reported */
 };
 
 static int _ecAutoPause = -1; /* -1 = not read from the environment yet */
@@ -339,6 +340,7 @@ static void report(struct EcTracker* t, const struct EcMon* m) {
 	EC_LOG("wild encounter: %s", json);
 	if (m->shiny && ecAutoPauseEnabled()) {
 		t->shinyHold = true;
+		t->shinyAt = nowMs();
 		t->shinyEvent = true;
 		EC_LOG("shiny! pausing, reset and savestate loading blocked until resumed");
 	}
@@ -374,8 +376,16 @@ void ecSetAutoPause(bool enabled) {
 	_ecAutoPause = enabled ? 1 : 0;
 }
 
+/* The pause waits until the display confirmed the report (or 1.5 s passed):
+ * a paused game no longer sends, so the display would only hear about the
+ * shiny - and play its melody - after resuming. */
+#define EC_SHINY_PAUSE_WAIT_MS 1500
+
 bool ecTakeShinyEvent(struct EcTracker* t) {
 	if (!t || !t->shinyEvent) {
+		return false;
+	}
+	if (t->qCount > 0 && nowMs() - t->shinyAt < EC_SHINY_PAUSE_WAIT_MS) {
 		return false;
 	}
 	t->shinyEvent = false;

@@ -113,6 +113,7 @@ static void _ecLoadOption(void) {
 	}
 }
 
+static bool _ecFrozen = false; /* frozen on a shiny (after the display got the report) */
 static const char* const _ecHeldText = "SHINY! Spiel angehalten - Reset und Laden gesperrt. Select oder Start 2 s halten zum Fortsetzen.";
 
 /* True for savestate loads RetroArch does on its own (run-ahead, netplay). */
@@ -1528,6 +1529,7 @@ void retro_init(void) {
 void retro_deinit(void) {
 	ecDestroy(_ec);
 	_ec = NULL;
+	_ecFrozen = false;
 	if (outputBuffer) {
 #ifdef _3DS
 		linearFree(outputBuffer);
@@ -1656,9 +1658,10 @@ void retro_run(void) {
 	core->setKeys(core, keys);
 
 	/* EncounterCounter: frozen on a shiny until Select or Start is held for 2 s */
-	if (_ec && ecShinyHold(_ec)) {
+	if (_ec && _ecFrozen) {
 		bool resume = ((keys >> 2) & 1) || ((keys >> 3) & 1); /* GBA_KEY_SELECT, GBA_KEY_START */
-		if (ecResumeButtonTick(_ec, resume)) {
+		if (ecResumeButtonTick(_ec, resume) || !ecShinyHold(_ec)) {
+			_ecFrozen = false;
 			_ecMessage("Weiter geht's - viel Glueck beim Fangen!", 240);
 		} else {
 			static unsigned heldFrames = 0;
@@ -1761,6 +1764,7 @@ void retro_run(void) {
 		if (_ec) {
 			ecFrame(_ec, _ecRead, core);
 			if (ecTakeShinyEvent(_ec)) {
+				_ecFrozen = true;
 				_ecMessage(_ecHeldText, 600);
 			}
 		}
