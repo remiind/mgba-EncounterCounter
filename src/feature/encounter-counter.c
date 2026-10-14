@@ -113,7 +113,14 @@ struct EcTracker {
 	int qHead, qCount;
 	uint32_t rng;
 	uint32_t battleKey; /* enemy key when the current battle was handled */
+
+	/* shiny auto-pause (written by the emulation thread, read by the UI) */
+	volatile bool shinyEvent;
+	volatile bool shinyHold;
+	uint64_t resumePressedAt; /* 0 = resume button not held */
 };
+
+static int _ecAutoPause = -1; /* -1 = not read from the environment yet */
 
 static uint64_t nowMs(void) {
 #ifdef _WIN32
@@ -330,6 +337,11 @@ static void report(struct EcTracker* t, const struct EcMon* m) {
 	         (unsigned long) randomU32(t), (unsigned long) m->ivs, m->ability, m->item,
 	         (unsigned) (m->tid ^ m->sid), t->code);
 	EC_LOG("wild encounter: %s", json);
+	if (m->shiny && ecAutoPauseEnabled()) {
+		t->shinyHold = true;
+		t->shinyEvent = true;
+		EC_LOG("shiny! pausing, reset and savestate loading blocked until resumed");
+	}
 	if (ecReportHook) {
 		ecReportHook(json);
 	}
@@ -345,6 +357,62 @@ static void report(struct EcTracker* t, const struct EcMon* m) {
 	p->tries = 0;
 	p->nextMs = 0;
 	t->qCount++;
+}
+
+/* ---- shiny auto-pause --------------------------------------------------- */
+bool ecAutoPauseEnabled(void) {
+	if (_ecAutoPause < 0) {
+		const char* env = getenv("POKECOUNTER_AUTOPAUSE");
+		bool off = env && (env[0] == '0' || env[0] == 'n' || env[0] == 'N' || env[0] == 'f' || env[0] == 'F' ||
+		                   ((env[0] == 'o' || env[0] == 'O') && (env[1] == 'f' || env[1] == 'F')));
+		_ecAutoPause = off ? 0 : 1;
+	}
+	return _ecAutoPause != 0;
+}
+
+void ecSetAutoPause(bool enabled) {
+	_ecAutoPause = enabled ? 1 : 0;
+}
+
+bool ecTakeShinyEvent(struct EcTracker* t) {
+	if (!t || !t->shinyEvent) {
+		return false;
+	}
+	t->shinyEvent = false;
+	return true;
+}
+
+bool ecShinyHold(const struct EcTracker* t) {
+	return t && t->shinyHold;
+}
+
+void ecReleaseShinyHold(struct EcTracker* t) {
+	if (!t) {
+		return;
+	}
+	t->shinyEvent = false;
+	t->shinyHold = false;
+	t->resumePressedAt = 0;
+}
+
+bool ecResumeButtonTick(struct EcTracker* t, bool pressed) {
+	if (!t || !t->shinyHold) {
+		return false;
+	}
+	if (!pressed) {
+		t->resumePressedAt = 0;
+		return false;
+	}
+	uint64_t now = nowMs();
+	if (!t->resumePressedAt) {
+		t->resumePressedAt = now ? now : 1;
+		return false;
+	}
+	if (now - t->resumePressedAt < EC_RESUME_HOLD_MS) {
+		return false;
+	}
+	ecReleaseShinyHold(t);
+	return true;
 }
 
 /* ---- game detection / battle tracking ---------------------------------- */

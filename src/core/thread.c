@@ -177,6 +177,11 @@ void _frameEnded(void* context) {
 	}
 	if (thread->impl && thread->impl->encounter) {
 		ecFrame(thread->impl->encounter, _ecRead, thread->core);
+		// ...and pause on a shiny; reset stays blocked until resumed by hand
+		if (ecTakeShinyEvent(thread->impl->encounter)) {
+			mLOG(STATUS, INFO, "SHINY! Paused - reset and state loading are blocked until you resume");
+			mCoreThreadPauseFromThread(thread);
+		}
 	}
 	if (thread->frameCallback) {
 		thread->frameCallback(thread);
@@ -395,11 +400,16 @@ static THREAD_ENTRY _mCoreThreadRun(void* context) {
 		}
 		if (wasPaused && !(pendingRequests & mTHREAD_REQ_PAUSE)) {
 			wasPaused = false;
+			// EncounterCounter: resuming ends the shiny protection
+			ecReleaseShinyHold(impl->encounter);
 			if (threadContext->unpauseCallback) {
 				threadContext->unpauseCallback(threadContext);
 			}
 		}
-		if (pendingRequests & mTHREAD_REQ_RESET) {
+		if ((pendingRequests & mTHREAD_REQ_RESET) && ecShinyHold(impl->encounter)) {
+			// EncounterCounter: never reset away a freshly found shiny
+			mLOG(STATUS, WARN, "SHINY protection: resume first, then reset");
+		} else if (pendingRequests & mTHREAD_REQ_RESET) {
 			core->reset(core);
 			if (threadContext->resetCallback) {
 				threadContext->resetCallback(threadContext);
@@ -695,6 +705,10 @@ void mCoreThreadTogglePause(struct mCoreThread* threadContext) {
 	}
 	_waitUntilNotState(threadContext->impl, mTHREAD_REQUEST);
 	MutexUnlock(&threadContext->impl->stateMutex);
+}
+
+bool mCoreThreadShinyHeld(struct mCoreThread* threadContext) {
+	return threadContext && threadContext->impl && ecShinyHold(threadContext->impl->encounter);
 }
 
 void mCoreThreadPauseFromThread(struct mCoreThread* threadContext) {

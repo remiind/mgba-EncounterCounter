@@ -92,6 +92,7 @@ public:
 	QImage getPixels();
 
 	bool isPaused();
+	bool shinyHeld(); // EncounterCounter
 	bool hasStarted();
 
 	QString title() { return m_dbTitle.isNull() ? m_internalTitle : m_dbTitle; }
@@ -243,6 +244,7 @@ signals:
 	void imagePrinted(const QImage&);
 
 private:
+	bool shinyBlocked(); // EncounterCounter
 	void updateKeys();
 	int updateAutofire();
 	void finishFrame();

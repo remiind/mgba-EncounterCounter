@@ -502,7 +502,23 @@ void CoreController::stop() {
 	mCoreThreadEnd(&m_threadContext);
 }
 
+// EncounterCounter: true (with a message) while a freshly found shiny is protected
+bool CoreController::shinyHeld() {
+	return mCoreThreadShinyHeld(&m_threadContext);
+}
+
+bool CoreController::shinyBlocked() {
+	if (!shinyHeld()) {
+		return false;
+	}
+	emit statusPosted(tr("SHINY protection: resume first"));
+	return true;
+}
+
 void CoreController::reset() {
+	if (shinyBlocked()) {
+		return;
+	}
 	m_crashSeen = false;
 	mCoreThreadReset(&m_threadContext);
 }
@@ -549,6 +565,9 @@ void CoreController::showResetInfo(bool enable) {
 }
 
 void CoreController::setRewinding(bool rewind) {
+	if (rewind && shinyBlocked()) {
+		return;
+	}
 	if (!m_threadContext.core->opts.rewindEnable) {
 		if (rewind) {
 			emit statusPosted(tr("Rewinding not currently enabled"));
@@ -567,6 +586,9 @@ void CoreController::setRewinding(bool rewind) {
 }
 
 void CoreController::rewind(int states) {
+	if (shinyBlocked()) {
+		return;
+	}
 	if (!m_threadContext.core->opts.rewindEnable) {
 		emit statusPosted(tr("Rewinding not currently enabled"));
 	}
@@ -651,6 +673,9 @@ void CoreController::overrideMute(bool override) {
 }
 
 void CoreController::loadState(int slot) {
+	if (shinyBlocked()) {
+		return;
+	}
 	if (slot > 0 && slot != m_stateSlot) {
 		m_stateSlot = slot;
 		m_backupSaveState.clear();
@@ -671,6 +696,9 @@ void CoreController::loadState(int slot) {
 }
 
 void CoreController::loadState(const QString& path, int flags) {
+	if (shinyBlocked()) {
+		return;
+	}
 	m_statePath = path;
 	int savedFlags = m_loadStateFlags;
 	if (flags != -1) {
@@ -698,6 +726,9 @@ void CoreController::loadState(const QString& path, int flags) {
 }
 
 void CoreController::loadState(QIODevice* iodev, int flags) {
+	if (shinyBlocked()) {
+		return;
+	}
 	m_stateVf = VFileDevice::wrap(iodev, QIODevice::ReadOnly);
 	if (!m_stateVf) {
 		return;
@@ -789,6 +820,9 @@ void CoreController::saveState(QIODevice* iodev, int flags) {
 }
 
 void CoreController::loadBackupState() {
+	if (shinyBlocked()) {
+		return;
+	}
 	if (!m_backupLoadState.isOpen()) {
 		return;
 	}

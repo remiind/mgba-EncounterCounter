@@ -44,6 +44,23 @@ void ecFrame(struct EcTracker* t, EcRead8 read, void* ctx);
  * Optional: a different battle appearing mid-battle is detected anyway. */
 void ecStateLoaded(struct EcTracker* t, EcRead8 read, void* ctx);
 
+/* ---- shiny auto-pause ----
+ * When a shiny wild Pokémon is reported, the tracker raises a one-shot shiny
+ * event (the frontend pauses the game) and a shiny hold (the frontend refuses
+ * reset and savestate loading until the game is resumed by hand).
+ * Enabled by default; POKECOUNTER_AUTOPAUSE=0 or ecSetAutoPause(false) turns
+ * it off. */
+bool ecAutoPauseEnabled(void);
+void ecSetAutoPause(bool enabled);
+bool ecTakeShinyEvent(struct EcTracker* t);
+bool ecShinyHold(const struct EcTracker* t);
+void ecReleaseShinyHold(struct EcTracker* t);
+/* For frontends without a pause the core can see (libretro): call once per
+ * frame while held with the state of the resume button. Returns true (and
+ * releases the hold) once the button was held for EC_RESUME_HOLD_MS. */
+#define EC_RESUME_HOLD_MS 2000
+bool ecResumeButtonTick(struct EcTracker* t, bool pressed);
+
 /* ---- exposed for tests ---- */
 struct EcMon {
 	uint32_t pid;

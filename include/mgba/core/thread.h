@@ -122,6 +122,8 @@ void mCoreThreadUnpause(struct mCoreThread* threadContext);
 bool mCoreThreadIsPaused(struct mCoreThread* threadContext);
 void mCoreThreadTogglePause(struct mCoreThread* threadContext);
 void mCoreThreadPauseFromThread(struct mCoreThread* threadContext);
+// EncounterCounter: true while a freshly found shiny is protected
+bool mCoreThreadShinyHeld(struct mCoreThread* threadContext);
 void mCoreThreadWaitFromThread(struct mCoreThread* threadContext);
 void mCoreThreadStopWaiting(struct mCoreThread* threadContext);
 

@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 #include "Window.h"
 
+#include <QApplication>
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QMenuBar>
@@ -2249,6 +2250,10 @@ void Window::setController(CoreController* controller) {
 	connect(m_controller.get(), &CoreController::paused, GBAApp::app(), &GBAApp::resumeScreensaver);
 	connect(m_controller.get(), &CoreController::paused, [this]() {
 		emit paused(true);
+		// EncounterCounter: flash the taskbar entry of the window that found a shiny
+		if (m_controller && m_controller->shinyHeld()) {
+			QApplication::alert(this);
+		}
 	});
 	connect(m_controller.get(), &CoreController::unpaused, [this]() {
 		emit paused(false);

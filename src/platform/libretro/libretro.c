@@ -95,6 +95,39 @@ static uint8_t _ecRead(void* ctx, uint32_t address) {
 static bool _ecNeedDetect = false;
 static struct EcTracker* _ec = NULL;
 
+/* EncounterCounter: shiny auto-pause (see encounter-counter.h) */
+static void _ecMessage(const char* text, unsigned frames) {
+	struct retro_message msg = { text, frames };
+	if (environCallback) {
+		environCallback(RETRO_ENVIRONMENT_SET_MESSAGE, &msg);
+	}
+}
+
+static void _ecLoadOption(void) {
+	struct retro_variable var = {
+		.key = "mgba_ec_autopause",
+		.value = 0
+	};
+	if (environCallback && environCallback(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
+		ecSetAutoPause(strcmp(var.value, "disabled") != 0);
+	}
+}
+
+static const char* const _ecHeldText = "SHINY! Spiel angehalten - Reset und Laden gesperrt. Select oder Start 2 s halten zum Fortsetzen.";
+
+/* True for savestate loads RetroArch does on its own (run-ahead, netplay). */
+static bool _ecInternalStateLoad(void) {
+	int context = 0;
+	if (environCallback(RETRO_ENVIRONMENT_GET_SAVESTATE_CONTEXT, &context)) {
+		return context != RETRO_SAVESTATE_CONTEXT_NORMAL;
+	}
+	int av = 0;
+	if (environCallback(RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE, &av)) {
+		return (av & 4) != 0; /* RETRO_AV_ENABLE_FAST_SAVESTATES */
+	}
+	return false;
+}
+
 static void _ecDetectGame(void) {
 	char code[5] = { 0 };
 	if (core && core->platform(core) == mPLATFORM_GBA) {
@@ -107,6 +140,7 @@ static void _ecDetectGame(void) {
 		_ec = ecCreate();
 	}
 	if (_ec) {
+		_ecLoadOption();
 		ecSetGame(_ec, code);
 	}
 }
@@ -1586,6 +1620,7 @@ void retro_run(void) {
 
 		_loadFrameskipSettings(NULL);
 		_loadAudioLowPassFilterSettings();
+		_ecLoadOption();
 
 #if defined(COLOR_16_BIT) && defined(COLOR_5_6_5)
 		_loadPostProcessingSettings();
@@ -1619,6 +1654,25 @@ void retro_run(void) {
 		);
 	}
 	core->setKeys(core, keys);
+
+	/* EncounterCounter: frozen on a shiny until Select or Start is held for 2 s */
+	if (_ec && ecShinyHold(_ec)) {
+		bool resume = ((keys >> 2) & 1) || ((keys >> 3) & 1); /* GBA_KEY_SELECT, GBA_KEY_START */
+		if (ecResumeButtonTick(_ec, resume)) {
+			_ecMessage("Weiter geht's - viel Glueck beim Fangen!", 240);
+		} else {
+			static unsigned heldFrames = 0;
+			static int16_t silence[1100 * 2];
+			if (heldFrames++ % 480 == 0) {
+				_ecMessage(_ecHeldText, 600);
+			}
+			unsigned w, h;
+			core->currentVideoSize(core, &w, &h);
+			videoCallback(NULL, w, h, VIDEO_WIDTH_MAX * sizeof(mColor));
+			audioCallback(silence, GBA_OUTPUT_RATE * 1000 / 59727);
+			return;
+		}
+	}
 
 	if (!luxSensorUsed) {
 		static bool wasAdjustingLux = false;
@@ -1706,6 +1760,9 @@ void retro_run(void) {
 		}
 		if (_ec) {
 			ecFrame(_ec, _ecRead, core);
+			if (ecTakeShinyEvent(_ec)) {
+				_ecMessage(_ecHeldText, 600);
+			}
 		}
 	}
 	unsigned width, height;
@@ -1969,6 +2026,11 @@ static void _setupMaps(struct mCore* core) {
 }
 
 void retro_reset(void) {
+	/* EncounterCounter: never reset away a freshly found shiny */
+	if (_ec && ecShinyHold(_ec)) {
+		_ecMessage("Shiny-Schutz: Reset gesperrt. Erst Select oder Start 2 s halten.", 300);
+		return;
+	}
 	core->reset(core);
 	mRumbleIntegratorReset(&rumble);
 	_setupMaps(core);
@@ -2212,6 +2274,11 @@ bool retro_serialize(void* data, size_t size) {
 bool retro_unserialize(const void* data, size_t size) {
 	if (deferredSetup) {
 		_doDeferredSetup();
+	}
+	/* EncounterCounter: a loaded state would throw away a freshly found shiny */
+	if (_ec && ecShinyHold(_ec) && !_ecInternalStateLoad()) {
+		_ecMessage("Shiny-Schutz: Laden gesperrt. Erst Select oder Start 2 s halten.", 300);
+		return false;
 	}
 	struct VFile* vfm = VFileFromConstMemory(data, size);
 	bool success = mCoreLoadStateNamed(core, vfm, SAVESTATE_RTC);

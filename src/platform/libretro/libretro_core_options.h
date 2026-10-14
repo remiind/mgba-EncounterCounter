@@ -268,6 +268,20 @@ struct retro_core_option_v2_definition option_defs_us[] = {
       "no"
    },
    {
+      "mgba_ec_autopause",
+      "PokéCounter: Pause on Shiny",
+      NULL,
+      "EncounterCounter: freeze the game as soon as a shiny wild Pokémon appears and refuse reset and savestate loading. Hold Select or Start for 2 seconds to continue.",
+      NULL,
+      "input",
+      {
+         { "enabled",  NULL },
+         { "disabled", NULL },
+         { NULL, NULL },
+      },
+      "enabled"
+   },
+   {
       "mgba_solar_sensor_level",
       "Solar Sensor Level",
       NULL,
