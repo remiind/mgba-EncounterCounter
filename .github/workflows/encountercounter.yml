@@ -74,38 +74,32 @@ jobs:
       with:
         msystem: UCRT64
         update: true
-        install: >-
-          git
-          mingw-w64-ucrt-x86_64-gcc
-          mingw-w64-ucrt-x86_64-cmake
-          mingw-w64-ucrt-x86_64-ninja
-          mingw-w64-ucrt-x86_64-pkgconf
-          mingw-w64-ucrt-x86_64-qt6-base
-          mingw-w64-ucrt-x86_64-qt6-multimedia
-          mingw-w64-ucrt-x86_64-qt6-tools
-          mingw-w64-ucrt-x86_64-SDL2
-          mingw-w64-ucrt-x86_64-libepoxy
-          mingw-w64-ucrt-x86_64-libzip
-          mingw-w64-ucrt-x86_64-libpng
-          mingw-w64-ucrt-x86_64-zlib
-          mingw-w64-ucrt-x86_64-sqlite3
-          mingw-w64-ucrt-x86_64-lua
-          mingw-w64-ucrt-x86_64-ntldd
+        install: git zip
+    - name: Install packages
+      run: |
+        for p in gcc cmake ninja pkgconf qt6-base qt6-multimedia qt6-tools qt6-svg SDL2 libepoxy libzip libpng zlib sqlite3 lua; do
+          pacman -S --noconfirm --needed mingw-w64-ucrt-x86_64-$p || echo "::warning::MSYS2-Paket fehlt: $p"
+        done
     - name: Build
       run: |
+        # Fehler als Annotation ausgeben (die Logs sind nicht überall lesbar)
+        report() { tail -n 25 "$1" | sed 's/^/::error::/'; exit 1; }
         cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_QT=ON -DBUILD_SDL=OFF \
-          -DUSE_FFMPEG=OFF -DUSE_DISCORD_RPC=OFF -DSKIP_GIT=ON -DCMAKE_INSTALL_PREFIX=$PWD/dist
-        cmake --build build
+          -DUSE_FFMPEG=OFF -DUSE_DISCORD_RPC=OFF -DSKIP_GIT=ON -DCMAKE_INSTALL_PREFIX=$PWD/dist > configure.log 2>&1 || report configure.log
+        cmake --build build > build.log 2>&1 || { grep -E "error|Error" build.log | head -n 20 | sed 's/^/::error::/'; report build.log; }
     - name: Package
       run: |
         mkdir -p pkg
         cp build/mGBA.exe pkg/ 2>/dev/null || cp build/qt/mGBA.exe pkg/
         cp build/*.dll pkg/ 2>/dev/null || true
-        windeployqt6 --release --no-translations --no-compiler-runtime pkg/mGBA.exe
+        ls build | sed 's/^/::notice::build: /' | head -n 40
+        windeployqt6 --release --no-translations --no-compiler-runtime pkg/mGBA.exe || windeployqt-qt6 --release --no-translations --no-compiler-runtime pkg/mGBA.exe
         # alle MinGW-Laufzeit-DLLs dazulegen
-        for f in pkg/*.exe pkg/*.dll pkg/*/*.dll; do
-          ntldd -R "$f" 2>/dev/null | grep -i ucrt64 | sed -E 's/.*=> (.*\.dll).*/\1/' | while read -r d; do
-            d=$(cygpath -u "$d"); [ -f "pkg/$(basename "$d")" ] || cp "$d" pkg/
+        for i in 1 2 3; do
+          for f in pkg/*.exe pkg/*.dll pkg/*/*.dll; do
+            ldd "$f" 2>/dev/null | grep -i '/ucrt64/' | awk '{print $3}' | while read -r d; do
+              [ -f "pkg/$(basename "$d")" ] || cp "$d" pkg/
+            done
           done
         done
         cp README.md pkg/README-mGBA.md
