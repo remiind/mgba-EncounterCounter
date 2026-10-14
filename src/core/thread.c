@@ -13,6 +13,7 @@
 #include <mgba/core/serialize.h>
 #include <mgba-util/patch.h>
 #include <mgba-util/vfs.h>
+#include "../feature/encounter-counter.h"
 
 #include <signal.h>
 
@@ -163,10 +164,19 @@ void _frameStarted(void* context) {
 	}
 }
 
+// EncounterCounter: memory access for the encounter tracker
+static uint8_t _ecRead(void* ctx, uint32_t address) {
+	struct mCore* core = ctx;
+	return (uint8_t) core->busRead8(core, address);
+}
+
 void _frameEnded(void* context) {
 	struct mCoreThread* thread = context;
 	if (!thread) {
 		return;
+	}
+	if (thread->impl && thread->impl->encounter) {
+		ecFrame(thread->impl->encounter, _ecRead, thread->core);
 	}
 	if (thread->frameCallback) {
 		thread->frameCallback(thread);
@@ -265,6 +275,20 @@ static THREAD_ENTRY _mCoreThreadRun(void* context) {
 
 	core->reset(core);
 	threadContext->impl->core = core;
+#ifdef M_CORE_GBA
+	// EncounterCounter: report wild Pokémon encounters of the Gen 3 games
+	if (core->platform(core) == mPLATFORM_GBA) {
+		char code[5] = { 0 };
+		int i;
+		for (i = 0; i < 4; ++i) {
+			code[i] = (char) core->busRead8(core, 0x080000AC + i);
+		}
+		threadContext->impl->encounter = ecCreate();
+		if (threadContext->impl->encounter) {
+			ecSetGame(threadContext->impl->encounter, code);
+		}
+	}
+#endif
 	MutexLock(&threadContext->impl->stateMutex);
 	_changeState(threadContext->impl, mTHREAD_RUNNING);
 	MutexUnlock(&threadContext->impl->stateMutex);
@@ -414,6 +438,8 @@ static THREAD_ENTRY _mCoreThreadRun(void* context) {
 	}
 #endif
 	core->clearCoreCallbacks(core);
+	ecDestroy(threadContext->impl->encounter);
+	threadContext->impl->encounter = NULL;
 
 	if (logger->filter == &filter) {
 		mLogFilterDeinit(&filter);

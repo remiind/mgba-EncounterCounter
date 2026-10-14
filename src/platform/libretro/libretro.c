@@ -28,6 +28,7 @@
 #include <mgba-util/memory.h>
 #include <mgba-util/vfs.h>
 #include "libretro-vfs.h"
+#include "../../feature/encounter-counter.h"
 
 #ifndef __LIBRETRO__
 #error "Can't compile the libretro core as anything other than libretro."
@@ -84,6 +85,31 @@ static int32_t _readGyroZ(struct mRotationSource* source);
 static void _setupMaps(struct mCore* core);
 
 static struct mCore* core;
+
+/* EncounterCounter: memory access for the encounter tracker (GBA only) */
+static uint8_t _ecRead(void* ctx, uint32_t address) {
+	struct mCore* c = ctx;
+	return (uint8_t) c->busRead8(c, address);
+}
+
+static bool _ecNeedDetect = false;
+static struct EcTracker* _ec = NULL;
+
+static void _ecDetectGame(void) {
+	char code[5] = { 0 };
+	if (core && core->platform(core) == mPLATFORM_GBA) {
+		int i;
+		for (i = 0; i < 4; ++i) {
+			code[i] = (char) core->busRead8(core, 0x080000AC + i);
+		}
+	}
+	if (!_ec) {
+		_ec = ecCreate();
+	}
+	if (_ec) {
+		ecSetGame(_ec, code);
+	}
+}
 static mColor* outputBuffer = NULL;
 static struct LibretroAudioConverter audioConverter;
 static int16_t *audioSampleBuffer = NULL;
@@ -1466,6 +1492,8 @@ void retro_init(void) {
 }
 
 void retro_deinit(void) {
+	ecDestroy(_ec);
+	_ec = NULL;
 	if (outputBuffer) {
 #ifdef _3DS
 		linearFree(outputBuffer);
@@ -1670,6 +1698,16 @@ void retro_run(void) {
    }
 
 	core->runFrame(core);
+	/* EncounterCounter: report wild encounters to the PokéCounter display */
+	if (core->platform(core) == mPLATFORM_GBA) {
+		if (_ecNeedDetect) {
+			_ecNeedDetect = false;
+			_ecDetectGame();
+		}
+		if (_ec) {
+			ecFrame(_ec, _ecRead, core);
+		}
+	}
 	unsigned width, height;
 	core->currentVideoSize(core, &width, &height);
 
@@ -1934,6 +1972,11 @@ void retro_reset(void) {
 	core->reset(core);
 	mRumbleIntegratorReset(&rumble);
 	_setupMaps(core);
+	if (core->platform(core) == mPLATFORM_GBA) {
+		if (_ec) {
+			ecStateLoaded(_ec, _ecRead, core);
+		}
+	}
 }
 
 #ifdef GEKKO
@@ -2117,6 +2160,7 @@ bool retro_load_game(const struct retro_game_info* game) {
 	}
 #endif
 
+	_ecNeedDetect = true;
 	return true;
 }
 
@@ -2124,6 +2168,10 @@ void retro_unload_game(void) {
 	if (!core) {
 		return;
 	}
+	if (_ec) {
+		ecSetGame(_ec, NULL);
+	}
+	_ecNeedDetect = false;
 	mCoreConfigDeinit(&core->config);
 	core->deinit(core);
 	mappedMemoryFree(data, dataSize);
@@ -2168,6 +2216,11 @@ bool retro_unserialize(const void* data, size_t size) {
 	struct VFile* vfm = VFileFromConstMemory(data, size);
 	bool success = mCoreLoadStateNamed(core, vfm, SAVESTATE_RTC);
 	vfm->close(vfm);
+	if (success && core->platform(core) == mPLATFORM_GBA) {
+		if (_ec) {
+			ecStateLoaded(_ec, _ecRead, core);
+		}
+	}
 	return success;
 }
 

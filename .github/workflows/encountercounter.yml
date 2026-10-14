@@ -1,0 +1,145 @@
+name: EncounterCounter Build
+
+# Baut den mGBA-Core für RetroArch (Android arm64 und Windows x64) sowie
+# mGBA als Windows-Programm, jeweils mit dem PokéCounter-Encounter-Sender,
+# und stellt alles als Release "encountercounter-latest" bereit.
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android-core:
+    name: RetroArch-Core Android arm64
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake \
+          -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-21 \
+          -DLIBMGBA_ONLY=ON -DBUILD_LIBRETRO=ON -DSKIP_LIBRARY=ON
+        cmake --build build --target mgba_libretro -j$(nproc)
+        cp build/mgba_libretro.so mgba_libretro_android.so
+        $ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip mgba_libretro_android.so
+    - uses: actions/upload-artifact@v4
+      with:
+        name: mgba_libretro_android
+        path: mgba_libretro_android.so
+
+  windows-core:
+    name: RetroArch-Core Windows x64
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install MinGW
+      run: sudo apt-get update && sudo apt-get install -y g++-mingw-w64-x86-64-posix ninja-build
+    - name: Build
+      run: |
+        cat > mingw.cmake <<'TC'
+        set(CMAKE_SYSTEM_NAME Windows)
+        set(CMAKE_C_COMPILER x86_64-w64-mingw32-gcc-posix)
+        set(CMAKE_CXX_COMPILER x86_64-w64-mingw32-g++-posix)
+        set(CMAKE_RC_COMPILER x86_64-w64-mingw32-windres)
+        set(CMAKE_FIND_ROOT_PATH /usr/x86_64-w64-mingw32)
+        set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+        set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+        set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+        TC
+        cmake -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/mingw.cmake -DCMAKE_BUILD_TYPE=Release \
+          -DLIBMGBA_ONLY=ON -DBUILD_LIBRETRO=ON -DSKIP_LIBRARY=ON \
+          -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static"
+        cmake --build build --target mgba_libretro
+        cp build/mgba_libretro.dll .
+        x86_64-w64-mingw32-strip mgba_libretro.dll
+    - uses: actions/upload-artifact@v4
+      with:
+        name: mgba_libretro_windows
+        path: mgba_libretro.dll
+
+  windows-exe:
+    name: mGBA Windows x64 (Programm)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: msys2/setup-msys2@v2
+      with:
+        msystem: UCRT64
+        update: true
+        install: >-
+          git
+          mingw-w64-ucrt-x86_64-gcc
+          mingw-w64-ucrt-x86_64-cmake
+          mingw-w64-ucrt-x86_64-ninja
+          mingw-w64-ucrt-x86_64-pkgconf
+          mingw-w64-ucrt-x86_64-qt6-base
+          mingw-w64-ucrt-x86_64-qt6-multimedia
+          mingw-w64-ucrt-x86_64-qt6-tools
+          mingw-w64-ucrt-x86_64-SDL2
+          mingw-w64-ucrt-x86_64-libepoxy
+          mingw-w64-ucrt-x86_64-libzip
+          mingw-w64-ucrt-x86_64-libpng
+          mingw-w64-ucrt-x86_64-zlib
+          mingw-w64-ucrt-x86_64-sqlite3
+          mingw-w64-ucrt-x86_64-lua
+          mingw-w64-ucrt-x86_64-ntldd
+    - name: Build
+      run: |
+        cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_QT=ON -DBUILD_SDL=OFF \
+          -DUSE_FFMPEG=OFF -DUSE_DISCORD_RPC=OFF -DSKIP_GIT=ON -DCMAKE_INSTALL_PREFIX=$PWD/dist
+        cmake --build build
+    - name: Package
+      run: |
+        mkdir -p pkg
+        cp build/mGBA.exe pkg/ 2>/dev/null || cp build/qt/mGBA.exe pkg/
+        cp build/*.dll pkg/ 2>/dev/null || true
+        windeployqt6 --release --no-translations --no-compiler-runtime pkg/mGBA.exe
+        # alle MinGW-Laufzeit-DLLs dazulegen
+        for f in pkg/*.exe pkg/*.dll pkg/*/*.dll; do
+          ntldd -R "$f" 2>/dev/null | grep -i ucrt64 | sed -E 's/.*=> (.*\.dll).*/\1/' | while read -r d; do
+            d=$(cygpath -u "$d"); [ -f "pkg/$(basename "$d")" ] || cp "$d" pkg/
+          done
+        done
+        cp README.md pkg/README-mGBA.md
+        ls pkg
+    - uses: actions/upload-artifact@v4
+      with:
+        name: mGBA-EncounterCounter-windows
+        path: pkg
+
+  release:
+    name: Release
+    needs: [android-core, windows-core, windows-exe]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        path: art
+    - name: Pack
+      run: |
+        cd art
+        (cd mGBA-EncounterCounter-windows && zip -qr ../../mGBA-EncounterCounter-windows.zip .)
+        cp mgba_libretro_android/mgba_libretro_android.so mgba_libretro_windows/mgba_libretro.dll ..
+    - uses: softprops/action-gh-release@v2
+      with:
+        tag_name: encountercounter-latest
+        name: EncounterCounter (neuester Stand)
+        prerelease: true
+        make_latest: false
+        body: |
+          Automatischer Build von ${{ github.sha }}.
+          - mGBA-EncounterCounter-windows.zip: mGBA für Windows mit PokéCounter-Sender (entpacken, mGBA.exe starten)
+          - mgba_libretro_android.so: mGBA-Core für RetroArch auf Android (Kern installieren)
+          - mgba_libretro.dll: mGBA-Core für RetroArch unter Windows
+        files: |
+          mGBA-EncounterCounter-windows.zip
+          mgba_libretro_android.so
+          mgba_libretro.dll

@@ -1,3 +1,17 @@
+# mGBA-EncounterCounter
+
+Fork of the [libretro mGBA core](https://github.com/libretro/mgba) that reports wild Pokémon encounters of the Game Boy Advance games to a **PokéCounter** desk display (ESP32) on the local network.
+
+- Supported: Pokémon Ruby, Sapphire, Emerald, FireRed and LeafGreen (English, German, French, Italian, Spanish, Japanese).
+- Works as RetroArch core (Android and Windows) and as standalone mGBA for Windows; several mGBA windows can hunt in parallel.
+- Every wild battle (both opponents in a double battle) is sent as a small UDP/JSON datagram to port 4210: species (national dex), level, gender, shiny flag, PID, IVs, ability, held item (Gen 3 index), TID ^ SID and the game code.
+- The display is found via a direct mDNS query for `pokecounter.local` or UDP broadcast; the first reply pins its address.
+- Downloads: release **encountercounter-latest** (`mgba_libretro_android.so`, `mgba_libretro.dll`, `mGBA-EncounterCounter-windows.zip`).
+
+Changes against upstream (MPL 2.0): `src/feature/encounter-counter.*` (new), hooks in `src/platform/libretro/libretro.c` and `src/core/thread.c`, a field in `include/mgba/core/thread.h`, CMake additions, CI workflow `.github/workflows/encountercounter.yml` (other workflows only run manually). RAM addresses from the pret decompilations and the pokebot-gen3 symbol tables.
+
+---
+
 mGBA
 ====
 

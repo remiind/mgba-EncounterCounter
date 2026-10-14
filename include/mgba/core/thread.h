@@ -82,6 +82,7 @@ enum mCoreThreadRequest {
 	mTHREAD_REQ_REWIND_EMPTY = 32,
 };
 
+struct EcTracker;
 struct mCoreThreadInternal {
 	Thread thread;
 	enum mCoreThreadState state;
@@ -97,6 +98,7 @@ struct mCoreThreadInternal {
 	struct mCoreSync sync;
 	struct mCoreRewindContext rewind;
 	struct mCore* core;
+	struct EcTracker* encounter; // EncounterCounter (GBA only)
 };
 
 #endif

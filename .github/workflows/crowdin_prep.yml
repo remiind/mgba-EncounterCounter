@@ -4,11 +4,7 @@ name: Crowdin Source Texts Upload
 
 # on change to the English texts
 on:
-  push:
-    branches:
-      - master
-    paths:
-      - 'src/platform/libretro/libretro_core_options.h'
+  workflow_dispatch:
 
 jobs:
   upload_source_file:
