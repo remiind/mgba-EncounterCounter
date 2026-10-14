@@ -89,21 +89,24 @@ jobs:
         cmake --build build > build.log 2>&1 || { grep -E "error|Error" build.log | head -n 20 | sed 's/^/::error::/'; report build.log; }
     - name: Package
       run: |
+        set +e +o pipefail
         mkdir -p pkg
-        cp build/mGBA.exe pkg/ 2>/dev/null || cp build/qt/mGBA.exe pkg/
-        cp build/*.dll pkg/ 2>/dev/null || true
-        ls build | sed 's/^/::notice::build: /' | head -n 40
-        windeployqt6 --release --no-translations --no-compiler-runtime pkg/mGBA.exe || windeployqt-qt6 --release --no-translations --no-compiler-runtime pkg/mGBA.exe
-        # alle MinGW-Laufzeit-DLLs dazulegen
-        for i in 1 2 3; do
+        cp build/mGBA.exe build/libmgba.dll pkg/
+        WDQ=$(ls /ucrt64/bin/windeployqt*.exe 2>/dev/null | head -n 1)
+        echo "::notice::windeployqt: $WDQ"
+        "$WDQ" --release --no-translations --no-compiler-runtime pkg/mGBA.exe > deploy.log 2>&1 || tail -n 15 deploy.log | sed 's/^/::warning::/'
+        # alle MinGW-Laufzeit-DLLs dazulegen (mehrere Durchläufe für indirekte Abhängigkeiten)
+        for i in 1 2 3 4; do
           for f in pkg/*.exe pkg/*.dll pkg/*/*.dll; do
-            ldd "$f" 2>/dev/null | grep -i '/ucrt64/' | awk '{print $3}' | while read -r d; do
+            [ -f "$f" ] || continue
+            for d in $(ldd "$f" 2>/dev/null | grep -i '/ucrt64/' | awk '{print $3}'); do
               [ -f "pkg/$(basename "$d")" ] || cp "$d" pkg/
             done
           done
         done
         cp README.md pkg/README-mGBA.md
-        ls pkg
+        ls pkg | sed 's/^/::notice::pkg: /'
+        test -f pkg/mGBA.exe && test -f pkg/Qt6Core.dll
     - uses: actions/upload-artifact@v4
       with:
         name: mGBA-EncounterCounter-windows
