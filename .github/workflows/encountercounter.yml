@@ -84,7 +84,7 @@ jobs:
       run: |
         # Fehler als Annotation ausgeben (die Logs sind nicht überall lesbar)
         report() { tail -n 25 "$1" | sed 's/^/::error::/'; exit 1; }
-        cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_QT=ON -DBUILD_SDL=OFF \
+        cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_QT=ON -DBUILD_SDL=ON \
           -DUSE_FFMPEG=OFF -DUSE_DISCORD_RPC=OFF -DSKIP_GIT=ON -DCMAKE_INSTALL_PREFIX=$PWD/dist > configure.log 2>&1 || report configure.log
         cmake --build build > build.log 2>&1 || { grep -E "error|Error" build.log | head -n 20 | sed 's/^/::error::/'; report build.log; }
     - name: Package
@@ -92,6 +92,7 @@ jobs:
         set +e +o pipefail
         mkdir -p pkg
         cp build/mGBA.exe build/libmgba.dll pkg/
+        test -f /ucrt64/bin/SDL2.dll && cp /ucrt64/bin/SDL2.dll pkg/
         WDQ=$(ls /ucrt64/bin/windeployqt*.exe 2>/dev/null | head -n 1)
         echo "::notice::windeployqt: $WDQ"
         "$WDQ" --release --no-translations --no-compiler-runtime pkg/mGBA.exe > deploy.log 2>&1 || tail -n 15 deploy.log | sed 's/^/::warning::/'
@@ -106,7 +107,7 @@ jobs:
         done
         cp README.md pkg/README-mGBA.md
         ls pkg | sed 's/^/::notice::pkg: /'
-        test -f pkg/mGBA.exe && test -f pkg/Qt6Core.dll
+        test -f pkg/mGBA.exe && test -f pkg/Qt6Core.dll && test -f pkg/SDL2.dll
     - uses: actions/upload-artifact@v4
       with:
         name: mGBA-EncounterCounter-windows
